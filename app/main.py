@@ -33,61 +33,18 @@ if settings.BACKEND_CORS_ORIGINS:
     )
 
 
-# Request ID and Observability Middleware
-@app.middleware("http")
-async def add_request_id_and_log(request: Request, call_next):
-    # Retrieve request ID from header or generate a new one
-    request_id = request.headers.get("X-Request-ID", uuid.uuid4().hex)
-    
-    # Store request ID in ContextVar for access by handlers and exceptions
-    token = request_id_var.set(request_id)
-    
-    # Bind request_id to structlog context
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(request_id=request_id)
-    
-    start_time = time.perf_counter()
-    
-    logger.info(
-        "request_started",
-        method=request.method,
-        path=request.url.path,
-        query_params=str(request.query_params),
-    )
-    
-    try:
-        response = await call_next(request)
-        duration = time.perf_counter() - start_time
-        
-        logger.info(
-            "request_completed",
-            method=request.method,
-            path=request.url.path,
-            status_code=response.status_code,
-            duration_ms=round(duration * 1000, 2),
-        )
-        
-        # Inject Request ID header into response
-        response.headers["X-Request-ID"] = request_id
-        return response
-    except Exception as e:
-        duration = time.perf_counter() - start_time
-        logger.exception(
-            "request_failed",
-            method=request.method,
-            path=request.url.path,
-            duration_ms=round(duration * 1000, 2),
-            error=str(e),
-        )
-        # Re-raise the exception, the global handler will intercept it
-        raise
-    finally:
-        # Reset context variables
-        request_id_var.reset(token)
+# Request ID and Observability Middleware (ASGI)
+from app.core.middleware import RequestIdLoggingMiddleware
+app.add_middleware(RequestIdLoggingMiddleware)
 
 
 # Register unified business and system exception handlers
 register_exception_handlers(app)
+
+# Register Domain Routers
+from app.modules.auth.router import router as auth_router
+
+app.include_router(auth_router, prefix=settings.API_V1_STR)
 
 
 # Health & Readiness Endpoints

@@ -73,3 +73,14 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield ac
         
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+async def flush_redis():
+    """Clear Redis cache before each test to prevent rate limit cross-contamination."""
+    from app.modules.auth.rate_limit import redis_client
+    try:
+        await redis_client.flushdb()
+    except Exception:
+        pass
+    yield
